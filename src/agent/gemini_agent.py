@@ -162,9 +162,7 @@ def ejecutar_herramienta(nombre: str, argumentos: dict):
 
 
 # 3. Agente principal
-
-
-def preguntar_agente(pregunta: str) -> str:
+def preguntar_agente(pregunta: str, on_reporte=None) -> str:
     """Procesa preguntas con multiples herramientas."""
 
     if not pregunta.strip():
@@ -319,7 +317,6 @@ def preguntar_agente(pregunta: str) -> str:
                     nombre == "generar_reporte_ventas"
                     and reporte_generado is not None
                 ):
-                    # Reutilizar el resultado anterior
                     resultado = reporte_generado
 
                 else:
@@ -328,9 +325,15 @@ def preguntar_agente(pregunta: str) -> str:
                         argumentos
                     )
 
-                if nombre == "generar_reporte_ventas":
-                    reporte_generado = resultado
+                    if nombre == "generar_reporte_ventas":
+                        reporte_generado = resultado
 
+                        # Avisar a Streamlit del nuevo archivo
+                        if (
+                            on_reporte is not None
+                            and resultado.get("estado") == "generado"
+                        ):
+                            on_reporte(resultado)
 
                 total_ejecuciones += 1
 
