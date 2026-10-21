@@ -8,7 +8,8 @@ from src.agent.gemini_client import (
 from src.agent.tools import (
     consultar_indicadores_generales,
     consultar_ventas_por_territorio,
-    consultar_top_productos
+    consultar_top_productos,
+    generar_reporte_ventas
 )
 
 
@@ -76,6 +77,29 @@ declaraciones = [
     )
 ]
 
+# Herramienta 4: generacion de reportes Excel
+declaraciones.append(
+    types.FunctionDeclaration(
+        name="generar_reporte_ventas",
+        description=(
+            "Genera un reporte Excel (.xlsx) completo "
+            "de ventas de AdventureWorks2022. "
+            "El reporte contiene cinco hojas base: "
+            "Resumen, Ventas mensuales, Territorios, "
+            "Top ingresos y Top unidades. "
+            "Adicionalmente, puede incluir una sexta "
+            "hoja llamada Conclusiones IA, con tres "
+            "conclusiones empresariales generadas "
+            "mediante Gemini. "
+            "Incluye dos graficos de ventas. "
+            "Utiliza esta herramienta solamente cuando "
+            "el usuario solicite generar, crear o "
+            "exportar un reporte Excel. "
+            "No requiere argumentos."
+        )
+    )
+)
+
 herramienta = types.Tool(
     function_declarations=declaraciones
 )
@@ -85,32 +109,52 @@ herramienta = types.Tool(
 
 def ejecutar_herramienta(nombre: str, argumentos: dict):
 
-    if nombre == "consultar_indicadores_generales":
+    # 1. Generar reporte Excel
+    if nombre == "generar_reporte_ventas":
 
         if argumentos:
-            raise ValueError("Argumentos no permitidos.")
+            raise ValueError(
+                "La generacion del reporte no admite argumentos."
+            )
+
+        return generar_reporte_ventas()
+
+    # 2. Consultar indicadores generales
+    elif nombre == "consultar_indicadores_generales":
+
+        if argumentos:
+            raise ValueError(
+                "Argumentos no permitidos."
+            )
 
         return consultar_indicadores_generales()
 
+    # 3. Consultar ventas por territorio
     elif nombre == "consultar_ventas_por_territorio":
 
         if set(argumentos) != {"limite"}:
-            raise ValueError("Argumentos no validos.")
+            raise ValueError(
+                "Argumentos no validos."
+            )
 
         return consultar_ventas_por_territorio(
             limite=argumentos["limite"]
         )
 
+    # 4. Consultar productos
     elif nombre == "consultar_top_productos":
 
         if set(argumentos) != {"limite", "criterio"}:
-            raise ValueError("Argumentos no validos.")
+            raise ValueError(
+                "Argumentos no validos."
+            )
 
         return consultar_top_productos(
             limite=argumentos["limite"],
             criterio=argumentos["criterio"]
         )
 
+    # 5. Rechazar funciones no autorizadas
     else:
         raise ValueError(
             f"Herramienta no autorizada: {nombre}"
@@ -153,6 +197,39 @@ def preguntar_agente(pregunta: str) -> str:
       o solicitar funciones adicionales despues de
       recibir resultados anteriores.
 
+    VALIDACION DE CONCLUSIONES:
+    - No confundas ingresos con cantidad de pedidos
+      ni con unidades vendidas.
+    - Un ranking ordenado por ingresos no demuestra
+      que sus integrantes tengan el mayor volumen
+      de pedidos de toda la empresa.
+    - No extrapoles un Top N al catalogo completo.
+    - No afirmes recompra, fidelidad, rentabilidad,
+      preferencias ni causas sin datos que lo prueben.
+    - Si calculas un porcentaje, especifica claramente
+      el numerador, el denominador y el periodo.
+    - Si la informacion disponible es insuficiente,
+      indica que no se puede determinar.
+    - Cuando compares dos indicadores, verifica que
+      correspondan al mismo periodo de analisis.
+
+    GENERACION DE REPORTES:
+    - Si el usuario solicita un archivo Excel,
+      utiliza generar_reporte_ventas.
+    - No afirmes que un archivo fue generado hasta
+      recibir la confirmacion de la herramienta.
+    - Indica el nombre exacto del archivo y que
+      esta guardado en la carpeta local reports.
+    - No inventes enlaces de descarga.
+    - Consulta el campo conclusiones_ia_en_excel
+      para confirmar si se incorporaron conclusiones.
+    - Si hay seis hojas, informa que se incluye
+      la hoja Conclusiones IA.
+    - Si hay cinco hojas, no afirmes que incluye
+      conclusiones de Gemini.
+    - No generes reportes si el usuario solamente
+      solicita consultar informacion.
+
     Presenta tablas cuando sean utiles y termina
     con conclusiones empresariales breves.
     """
@@ -169,6 +246,7 @@ def preguntar_agente(pregunta: str) -> str:
     max_rondas = 3
     max_ejecuciones = 6
     total_ejecuciones = 0
+    reporte_generado = None
 
     with crear_cliente_gemini() as cliente:
 
@@ -237,11 +315,22 @@ def preguntar_agente(pregunta: str) -> str:
                 print(f"\nHerramienta: {nombre}")
                 print(f"Argumentos: {argumentos}")
 
-                # Solo ejecutar herramientas autorizadas
-                resultado = ejecutar_herramienta(
-                    nombre,
-                    argumentos
-                )
+                if (
+                    nombre == "generar_reporte_ventas"
+                    and reporte_generado is not None
+                ):
+                    # Reutilizar el resultado anterior
+                    resultado = reporte_generado
+
+                else:
+                    resultado = ejecutar_herramienta(
+                        nombre,
+                        argumentos
+                    )
+
+                if nombre == "generar_reporte_ventas":
+                    reporte_generado = resultado
+
 
                 total_ejecuciones += 1
 

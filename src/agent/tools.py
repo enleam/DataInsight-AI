@@ -1,3 +1,10 @@
+from src.reports.excel_generator import (
+    generar_reporte_excel,
+    agregar_conclusiones_ia
+)
+
+from src.agent.insights import generar_conclusiones_ia
+
 from src.database.sales_queries import (
     obtener_pedidos,
     obtener_detalle_productos
@@ -138,3 +145,86 @@ def consultar_top_productos(
         "moneda": "no especificada",
         "productos": productos
     }
+
+
+
+def generar_reporte_ventas() -> dict:
+    """Genera un reporte Excel con analisis empresarial."""
+
+    print("\nConsultando datos para el reporte Excel...")
+
+    # 1. Extraer datos desde SQL Server
+    pedidos = obtener_pedidos()
+    detalle = obtener_detalle_productos()
+
+    # 2. Generar las cinco hojas originales
+    ruta = generar_reporte_excel(
+        pedidos=pedidos,
+        detalle=detalle
+    )
+
+    if not ruta.is_file():
+        raise RuntimeError(
+            "El archivo Excel no se genero correctamente."
+        )
+
+    print(f"Reporte guardado en: {ruta}")
+
+    # 3. Solicitar conclusiones a Gemini
+    conclusiones_incluidas = False
+    advertencia = None
+
+    try:
+        print("Generando conclusiones con Gemini...")
+
+        conclusiones = generar_conclusiones_ia(
+            pedidos,
+            detalle
+        )
+
+        agregar_conclusiones_ia(
+            ruta,
+            conclusiones
+        )
+
+        conclusiones_incluidas = True
+
+        print("Conclusiones incorporadas al Excel.")
+
+    except Exception as error:
+        # Mantener el reporte original si falla Gemini
+        advertencia = (
+            "El Excel fue generado, pero no se pudieron "
+            "incorporar las conclusiones de IA. "
+            f"Tipo de error: {type(error).__name__}"
+        )
+
+        print(advertencia)
+
+    # 4. Preparar los metadatos del reporte
+    hojas = [
+        "Resumen",
+        "Ventas mensuales",
+        "Territorios",
+        "Top ingresos",
+        "Top unidades"
+    ]
+
+    if conclusiones_incluidas:
+        hojas.append("Conclusiones IA")
+
+    resultado = {
+        "estado": "generado",
+        "archivo": ruta.name,
+        "carpeta": "reports",
+        "formato": "xlsx",
+        "hojas": hojas,
+        "cantidad_hojas": len(hojas),
+        "cantidad_graficos": 2,
+        "conclusiones_ia_en_excel": conclusiones_incluidas
+    }
+
+    if advertencia:
+        resultado["advertencia"] = advertencia
+
+    return resultado

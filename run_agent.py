@@ -5,8 +5,8 @@ from src.agent.gemini_agent import preguntar_agente
 def main():
 
     print("=== DATAINSIGHT AI ===")
-    print("Sprint 3 - Agente inteligente con Gemini")
-    print("Analisis de ventas por territorio\n")
+    print("Agente inteligente con Gemini") 
+    print("Consultas de ventas y generacion de reportes\n")
 
     while True:
 

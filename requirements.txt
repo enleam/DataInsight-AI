@@ -3,3 +3,4 @@ python-dotenv>=1,<2
 pandas>=2.2,<4
 pytest>=8,<10
 google-genai
+openpyxl>=3.1,<4
