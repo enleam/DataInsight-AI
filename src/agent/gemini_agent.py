@@ -1,3 +1,5 @@
+import json
+
 from google.genai import types
 
 from src.agent.gemini_client import (
@@ -9,9 +11,9 @@ from src.agent.tools import (
     consultar_indicadores_generales,
     consultar_ventas_por_territorio,
     consultar_top_productos,
-    generar_reporte_ventas
+    generar_reporte_ventas,
+    generar_reporte_personalizado
 )
-
 
 # 1. Declaraciones de herramientas
 
@@ -100,10 +102,61 @@ declaraciones.append(
     )
 )
 
+# Herramienta 5: reportes personalizados
+declaraciones.append(
+    types.FunctionDeclaration(
+        name="generar_reporte_personalizado",
+        description=(
+            "Genera un archivo Excel de ventas "
+            "personalizado para AdventureWorks2022. "
+            "Utilizar cuando el usuario solicite "
+            "un reporte Excel filtrado por año, "
+            "territorio o ambos. "
+            "Requiere al menos un filtro: "
+            "anio o territorio. "
+            "Si solicita conclusiones de IA, "
+            "establecer incluir_conclusiones_ia "
+            "en true. En caso contrario, false. "
+            "El reporte tiene cinco hojas base, "
+            "dos graficos y una sexta hoja "
+            "opcional de Conclusiones IA. "
+            "No usar para simples consultas "
+            "sin solicitud de archivo."
+        ),
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={
+                "anio": types.Schema(
+                    type="INTEGER",
+                    description=(
+                        "Año calendario solicitado, "
+                        "por ejemplo 2013."
+                    )
+                ),
+                "territorio": types.Schema(
+                    type="STRING",
+                    description=(
+                        "Nombre del territorio, "
+                        "por ejemplo Canada "
+                        "o Southwest."
+                    )
+                ),
+                "incluir_conclusiones_ia": types.Schema(
+                    type="BOOLEAN",
+                    description=(
+                        "True solamente cuando "
+                        "el usuario solicite "
+                        "conclusiones de IA."
+                    )
+                )
+            }
+        )
+    )
+)
+
 herramienta = types.Tool(
     function_declarations=declaraciones
 )
-
 
 # 2. Ejecucion controlada
 
@@ -152,6 +205,24 @@ def ejecutar_herramienta(nombre: str, argumentos: dict):
         return consultar_top_productos(
             limite=argumentos["limite"],
             criterio=argumentos["criterio"]
+        )
+
+    elif nombre == "generar_reporte_personalizado":
+
+        permitidos = {
+            "anio",
+            "territorio",
+            "incluir_conclusiones_ia"
+        }
+
+        if not set(argumentos).issubset(permitidos):
+            raise ValueError(
+                "Argumentos no validos para "
+                "el reporte personalizado."
+            )
+
+        return generar_reporte_personalizado(
+            **argumentos
         )
 
     # 5. Rechazar funciones no autorizadas
@@ -212,8 +283,6 @@ def preguntar_agente(pregunta: str, on_reporte=None) -> str:
       correspondan al mismo periodo de analisis.
 
     GENERACION DE REPORTES:
-    - Si el usuario solicita un archivo Excel,
-      utiliza generar_reporte_ventas.
     - No afirmes que un archivo fue generado hasta
       recibir la confirmacion de la herramienta.
     - Indica el nombre exacto del archivo y que
@@ -227,6 +296,23 @@ def preguntar_agente(pregunta: str, on_reporte=None) -> str:
       conclusiones de Gemini.
     - No generes reportes si el usuario solamente
       solicita consultar informacion.
+    - Si el usuario solicita un Excel sin filtros,
+      utiliza generar_reporte_ventas.
+    - Si solicita un Excel por año, territorio o
+      ambos, utiliza generar_reporte_personalizado.
+    - Nunca utilices el reporte general para una
+      solicitud que incluye filtros.
+    - No inventes un año o territorio que el
+      usuario no haya indicado.
+    - Si el usuario solicita conclusiones de IA
+      en el reporte personalizado, establece
+      incluir_conclusiones_ia en true.
+    - Comprueba conclusiones_ia_en_excel antes
+      de afirmar que el archivo contiene IA.
+    - Si existe una advertencia de generación,
+      comunícala al usuario.
+    - No afirmes que generaste un archivo hasta
+      recibir la confirmación de la herramienta.
 
     Presenta tablas cuando sean utiles y termina
     con conclusiones empresariales breves.
@@ -244,7 +330,7 @@ def preguntar_agente(pregunta: str, on_reporte=None) -> str:
     max_rondas = 3
     max_ejecuciones = 6
     total_ejecuciones = 0
-    reporte_generado = None
+    cache_reportes = {}
 
     with crear_cliente_gemini() as cliente:
 
@@ -304,6 +390,7 @@ def preguntar_agente(pregunta: str, on_reporte=None) -> str:
 
             print(f"\n=== RONDA {ronda + 1} ===")
 
+
             # Ejecutar todas las herramientas solicitadas
             for llamada in llamadas:
 
@@ -313,33 +400,58 @@ def preguntar_agente(pregunta: str, on_reporte=None) -> str:
                 print(f"\nHerramienta: {nombre}")
                 print(f"Argumentos: {argumentos}")
 
-                if (
-                    nombre == "generar_reporte_ventas"
-                    and reporte_generado is not None
-                ):
-                    resultado = reporte_generado
+                # 1. Identificar herramientas de reportes
+                es_reporte = nombre in {
+                    "generar_reporte_ventas",
+                    "generar_reporte_personalizado"
+                }
 
-                else:
-                    resultado = ejecutar_herramienta(
+                # 2. Ejecutar reportes con cache
+                if es_reporte:
+
+                    clave = (
                         nombre,
-                        argumentos
+                        json.dumps(
+                            argumentos,
+                            sort_keys=True,
+                            ensure_ascii=False
+                        )
                     )
 
-                    if nombre == "generar_reporte_ventas":
-                        reporte_generado = resultado
+                    if clave in cache_reportes:
 
-                        # Avisar a Streamlit del nuevo archivo
+                        resultado = cache_reportes[clave]
+
+                    else:
+
+                        resultado = ejecutar_herramienta(
+                            nombre,
+                            argumentos
+                        )
+
+                        cache_reportes[clave] = resultado
+
+                        # Notificar el archivo a Streamlit
                         if (
                             on_reporte is not None
                             and resultado.get("estado") == "generado"
                         ):
                             on_reporte(resultado)
 
+                # 3. Ejecutar herramientas de consulta
+                else:
+
+                    resultado = ejecutar_herramienta(
+                        nombre,
+                        argumentos
+                    )
+
+                # 4. Actualizar contador
                 total_ejecuciones += 1
 
                 print("Analisis completado correctamente.")
 
-                # Convertir resultado para Gemini
+                # 5. Preparar resultado para Gemini
                 parte = types.Part.from_function_response(
                     name=nombre,
                     response={"resultado": resultado}

@@ -27,6 +27,11 @@ from src.reports.excel_generator import (
     generar_reporte_excel
 )
 
+from openpyxl import load_workbook
+
+from src.reports.personalized_report import (
+    generar_reporte_personalizado as crear_excel_personalizado
+)
 
 CARPETA_REPORTES = (ROOT / "reports").resolve()
 
@@ -57,6 +62,9 @@ if "mensajes" not in st.session_state:
 
 if "reporte_base" not in st.session_state:
     st.session_state.reporte_base = None
+
+if "reporte_personalizado" not in st.session_state:
+    st.session_state.reporte_personalizado = None
 
 
 # ==========================================
@@ -179,6 +187,183 @@ with st.sidebar:
             "Último reporte base generado correctamente. "
             "Incluye 5 hojas y 2 gráficos, sin IA."
         )
+
+
+    # ======================================
+    # GENERADOR DE EXCEL PERSONALIZADO
+    # ======================================
+
+    st.divider()
+
+    with st.expander(
+        "🧩 Excel personalizado",
+        expanded=True
+    ):
+
+        st.caption(
+            "Selecciona un año, un territorio "
+            "o ambos para generar un reporte."
+        )
+
+        # 1. Formulario de filtros
+        with st.form("form_reporte_personalizado"):
+
+            anio_seleccionado = st.selectbox(
+                "Año",
+                options=[
+                    "Todos",
+                    "2011",
+                    "2012",
+                    "2013",
+                    "2014"
+                ],
+                index=0
+            )
+
+            territorio_ingresado = st.text_input(
+                "Territorio (opcional)",
+                placeholder="Ejemplo: Canada"
+            )
+
+            incluir_ia = st.checkbox(
+                "Incluir conclusiones de IA",
+                value=False
+            )
+
+            enviar = st.form_submit_button(
+                "📊 Generar Excel personalizado",
+                use_container_width=True
+            )
+
+        # 2. Procesar formulario
+        if enviar:
+
+            # Evitar mostrar una descarga anterior
+            # como resultado de la nueva solicitud
+            st.session_state.reporte_personalizado = None
+
+            anio = (
+                None
+                if anio_seleccionado == "Todos"
+                else int(anio_seleccionado)
+            )
+
+            territorio = (
+                territorio_ingresado.strip() or None
+            )
+
+            # Exigir al menos un filtro
+            if anio is None and territorio is None:
+
+                st.warning(
+                    "Selecciona un año o escribe "
+                    "un territorio para continuar."
+                )
+
+            else:
+
+                try:
+
+                    with st.spinner(
+                        "Generando Excel personalizado..."
+                    ):
+
+                        ruta = crear_excel_personalizado(
+                            anio=anio,
+                            territorio=territorio,
+                            incluir_conclusiones_ia=incluir_ia
+                        )
+
+                        if not ruta.is_file():
+                            raise RuntimeError(
+                                "El archivo no fue generado."
+                            )
+
+                        # Verificar si realmente se
+                        # incorporaron conclusiones IA
+                        wb = load_workbook(
+                            ruta,
+                            read_only=True
+                        )
+
+                        try:
+                            tiene_ia = (
+                                "Conclusiones IA"
+                                in wb.sheetnames
+                            )
+                        finally:
+                            wb.close()
+
+                        # Guardar archivo para descarga
+                        st.session_state.reporte_personalizado = {
+                            "nombre": ruta.name,
+                            "contenido": ruta.read_bytes(),
+                            "tiene_ia": tiene_ia
+                        }
+
+                    st.success(
+                        "Excel personalizado generado "
+                        "correctamente."
+                    )
+
+                    if incluir_ia and not tiene_ia:
+
+                        st.warning(
+                            "Se generó el Excel con las "
+                            "cinco hojas analíticas, pero "
+                            "no pudieron incorporarse "
+                            "las conclusiones de Gemini."
+                        )
+
+                except ValueError as error:
+
+                    st.warning(
+                        f"No se pudo generar el reporte: "
+                        f"{error}"
+                    )
+
+                except Exception:
+
+                    logging.exception(
+                        "Error generando Excel personalizado"
+                    )
+
+                    st.error(
+                        "Ocurrió un error al generar "
+                        "el reporte personalizado. "
+                        "Revisa la terminal."
+                    )
+
+        # 3. Mostrar ultima descarga disponible
+        reporte = st.session_state.get(
+            "reporte_personalizado"
+        )
+
+        if reporte is not None:
+
+            st.download_button(
+                label="📥 Descargar Excel personalizado",
+                data=reporte["contenido"],
+                file_name=reporte["nombre"],
+                mime=MIME_EXCEL,
+                key="descargar_excel_personalizado",
+                use_container_width=True
+            )
+
+            if reporte["tiene_ia"]:
+
+                st.caption(
+                    "El archivo incluye seis hojas, "
+                    "con conclusiones de Gemini."
+                )
+
+            else:
+
+                st.caption(
+                    "El archivo incluye cinco hojas "
+                    "analíticas, sin conclusiones IA."
+                )
+
 
     st.divider()
 

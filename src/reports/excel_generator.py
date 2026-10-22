@@ -217,7 +217,8 @@ def generar_reporte_excel(
     resumen["A15"] = "Nota metodologica"
     resumen["B15"] = (
         "Ventas de productos sin impuestos ni transporte. "
-        "Los años 2011 y 2014 contienen periodos parciales."
+        "Los indicadores corresponden exclusivamente "
+        "a los pedidos incluidos en este reporte."
     )
 
     resumen["A16"] = "Moneda"

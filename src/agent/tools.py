@@ -1,3 +1,7 @@
+from openpyxl import load_workbook
+
+from src.reports import personalized_report
+
 from src.reports.excel_generator import (
     generar_reporte_excel,
     agregar_conclusiones_ia
@@ -226,5 +230,102 @@ def generar_reporte_ventas() -> dict:
 
     if advertencia:
         resultado["advertencia"] = advertencia
+
+    return resultado
+
+
+def generar_reporte_personalizado(
+    anio: int | None = None,
+    territorio: str | None = None,
+    incluir_conclusiones_ia: bool = False
+) -> dict:
+    """
+    Herramienta del agente para generar
+    reportes personalizados.
+    """
+
+    # 1. Exigir al menos un filtro
+    if anio is None and territorio is None:
+        raise ValueError(
+            "El reporte personalizado requiere "
+            "un año o un territorio."
+        )
+
+    # 2. Validar tipos antes de consultar SQL
+    if anio is not None:
+        if (
+            type(anio) is not int
+            or not 1900 <= anio <= 2100
+        ):
+            raise ValueError(
+                "El año debe ser un entero valido."
+            )
+
+    if territorio is not None:
+        if (
+            not isinstance(territorio, str)
+            or not territorio.strip()
+        ):
+            raise ValueError(
+                "El territorio no es valido."
+            )
+
+        territorio = territorio.strip()
+
+    if type(incluir_conclusiones_ia) is not bool:
+        raise ValueError(
+            "incluir_conclusiones_ia debe "
+            "ser verdadero o falso."
+        )
+
+    # 3. Generar el reporte filtrado
+    ruta = (
+        personalized_report.generar_reporte_personalizado(
+            anio=anio,
+            territorio=territorio,
+            incluir_conclusiones_ia=incluir_conclusiones_ia
+        )
+    )
+
+    if not ruta.is_file():
+        raise RuntimeError(
+            "El reporte no fue generado."
+        )
+
+    # 4. Verificar las hojas realmente guardadas
+    wb = load_workbook(ruta, read_only=True)
+
+    try:
+        hojas = list(wb.sheetnames)
+    finally:
+        wb.close()
+
+    tiene_conclusiones = (
+        "Conclusiones IA" in hojas
+    )
+
+    # 5. Devolver informacion al agente
+    resultado = {
+        "estado": "generado",
+        "archivo": ruta.name,
+        "carpeta": "reports",
+        "formato": "xlsx",
+        "tipo_reporte": "personalizado",
+        "filtros": {
+            "anio": anio,
+            "territorio": territorio
+        },
+        "hojas": hojas,
+        "cantidad_hojas": len(hojas),
+        "cantidad_graficos": 2,
+        "conclusiones_ia_en_excel": tiene_conclusiones
+    }
+
+    if incluir_conclusiones_ia and not tiene_conclusiones:
+        resultado["advertencia"] = (
+            "El Excel fue generado, pero no "
+            "se pudieron incorporar las "
+            "conclusiones de IA."
+        )
 
     return resultado
